@@ -35,6 +35,7 @@
 
 #include "readubyte.h"
 
+#define UNIFORM_LEARNING_RATE
 ///////////////////////////////////////////////////////////////////////////////////////////
 // Definitions and helper utilities
 
@@ -773,6 +774,11 @@ struct TrainingContext
         // Softmax layer
         SoftmaxLossBackprop<<<RoundUp(m_batchSize, BW), BW>>>(labels, ref_fc2.outputs, m_batchSize, dloss_data);
 
+#ifdef UNIFORM_LEARNING_RATE
+        // Accounting for batch size in SGD
+        checkCudaErrors(cublasSscal(cublasHandle, ref_fc2.outputs * m_batchSize, &scalVal, dloss_data, 1));
+#endif
+
         // FC2 layer
         // Compute derivative with respect to weights: gfc2 = (fc1relu * dfc2smax')
         checkCudaErrors(cublasSgemm(cublasHandle, CUBLAS_OP_N, CUBLAS_OP_T, ref_fc2.inputs, ref_fc2.outputs, m_batchSize,
@@ -1112,7 +1118,11 @@ int main(int argc, char **argv)
         );
 
         // Compute learning rate
+#ifdef UNIFORM_LEARNING_RATE
+        const float learningRate = static_cast<float>(FLAGS_learning_rate * pow((1.0 + FLAGS_lr_gamma * iter), (-FLAGS_lr_power)));
+#else
         const float learningRate = static_cast<float>(FLAGS_learning_rate * pow((1.0 + FLAGS_lr_gamma * iter), (-FLAGS_lr_power)) / FLAGS_batch_size);
+#endif
 
         // Update weights
         context.UpdateWeights(
